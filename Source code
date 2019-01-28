@@ -1,0 +1,576 @@
+Sub createReport()
+
+    ''' Create "Results" sheet in report in 1st test
+    pathSet = Workbooks("Operator_V.3.xlsm").Sheets("path").Range("A2").Value
+    Set objFs = CreateObject("Scripting.FileSystemObject")
+    Set objFolder = objFs.GetFolder(pathSet)       ' THE PATH FOR THE FILES
+                
+    For Each file In objFolder.Files
+        If InStr(file.Name, "~") = 0 Then
+            a = file.Name
+            
+            Windows(file.Name).Activate
+                                
+            newTest = True
+                                
+            For shtNum = 1 To Application.Sheets.Count
+                If Application.Sheets(shtNum).Name = "Results" Then
+                    newTest = False
+                End If
+            Next shtNum
+                                
+            If newTest = True Then
+            
+                Workbooks("Operator_V.3.xlsm").Activate
+                                    
+                des = file.Name
+                Sheets("Results").Copy After:=Workbooks(file.Name).Sheets(Workbooks(file.Name).Sheets.Count)
+                
+                Workbooks(file.Name).Activate
+                
+                On Error Resume Next
+                Sheets("Request form").Select
+                Range("B15:J500").Select
+                Selection.Copy
+                Sheets("Results").Select
+                Range("A6").Select
+                ActiveSheet.Paste
+                
+                Windows("Operator_V.3.xlsm").Activate
+                                    
+            End If
+        End If
+    Next
+
+End Sub
+
+Sub defindBatchAndMarker(xWorkbook)
+    
+    
+    With xWorkbook.Worksheets("Sheet1")
+
+        '''''''''''''''''''''''''''''''''''''''''''''''''''''''
+        ''For each batch, colect 92 samples and find markers ''
+        '''''''''''''''''''''''''''''''''''''''''''''''''''''''
+        sampleCol = 2
+        
+        While .Cells(1, sampleCol) <> ""
+        
+            startSpCol = sampleCol
+            batchName = Split(.Cells(1, sampleCol).Value, "-")
+            varName = batchName(0)
+            
+            'Cells(31, sampleCol).Value = varName
+            
+            '' Find the last sample of each batch
+            Do Until InStr(.Cells(1, sampleCol).Value, varName) = 0
+                sampleCol = sampleCol + 1
+            Loop
+            
+            '' Copy samples of each batch to new sheet and transpose it
+            xWorkbook.Worksheets.Add().Name = varName
+            xWorkbook.Sheets(varName).Range("A1").Value = "marker_code"
+            .Range(.Cells(1, startSpCol), .Cells(1, sampleCol - 1)).Copy
+            xWorkbook.Sheets(varName).Range("A2").PasteSpecial Paste:=xlPasteAll, Operation:=xlNone, SkipBlanks:= _
+                False, Transpose:=True
+            
+            '''''''''''''''''
+            '' Find marker ''
+            '''''''''''''''''
+            markerRow = 2
+            colMark_newSheet = 2
+            While .Cells(markerRow, 1) <> ""
+                
+                markerName = .Cells(markerRow, 1).Value
+                
+                'Copy marker
+                
+                ' Select markers from genotyping that show blanks less than sample number
+                
+                If Application.WorksheetFunction.CountIf(Range(.Cells(markerRow, startSpCol), .Cells(markerRow, sampleCol - 1)), "-") < sampleCol - startSpCol Then
+    
+                    .Range(.Cells(markerRow, startSpCol), .Cells(markerRow, sampleCol - 1)).Copy
+                    xWorkbook.Sheets(varName).Cells(2, colMark_newSheet).PasteSpecial Paste:=xlPasteAll, Operation:=xlNone, SkipBlanks:= _
+                        False, Transpose:=True
+                    xWorkbook.Sheets(varName).Cells(1, colMark_newSheet).Value = markerName
+                        
+                    colMark_newSheet = colMark_newSheet + 1
+                            
+                End If
+                
+                markerRow = markerRow + 1
+            
+            Wend
+            ''''''''''''''''''''''''''''''
+            Call calAndSum(varName, xWorkbook)
+        Wend
+    End With
+    
+
+End Sub
+
+
+Sub calAndSum(varName, xWorkbook)
+
+    Dim markerNumber As Integer
+    
+    Workbooks("Operator_V.3.xlsm").Activate
+    Sheets("scoring").Select
+    
+    recDate = Format(Range("D3").Value, "d-mmm-yy") 'Received date
+    stDate = Format(Range("D4").Value, "d-mmm-yy") 'Started date
+    repDate = Format(Range("D5").Value, "d-mmm-yy") 'Report date
+    extDate = Format(Range("D6").Value, "d-mmm-yy") 'DNA extraction
+    genoDate = Format(Range("D7").Value, "d-mmm-yy") 'Genotyping
+    anaDate = Format(Range("D8").Value, "d-mmm-yy") 'Analysis
+    repDate = Format(Range("D9").Value, "d-mmm-yy") 'Report
+
+    With xWorkbook.Worksheets(varName)
+        
+        markerNumber = WorksheetFunction.CountA(.Range("1:1"))
+        
+        .Cells(4, markerNumber + 3).Value = "Plate code"
+        .Cells(4, markerNumber + 4) = "#Tested sample"
+        .Cells(4, markerNumber + 5) = "#Hybrid"
+        .Cells(4, markerNumber + 6) = "#Non-hybrid"
+        .Cells(4, markerNumber + 7) = "#Female"
+        .Cells(4, markerNumber + 8) = "#Off-type"
+        .Cells(4, markerNumber + 9) = "%Hybridity"
+        .Cells(4, markerNumber + 10) = "Blank data"
+        .Cells(4, markerNumber + 11) = "Cannot be interpreted"
+        .Cells(4, markerNumber + 12) = "Remark"
+        .Cells(4, markerNumber + 13) = "Retesting samples for blank data"
+        .Cells(4, markerNumber + 14) = "Retesting samples for CP"
+
+
+        
+        ''''''''''''''''''''''''''''''''''
+        '' Select reference's genotypes ''
+        ''''''''''''''''''''''''''''''''''
+        
+        '' Check number of reference set
+        
+        maleRef_row = 0
+        femaleRef_row = 0
+        heteroRef_row = 0
+        
+        r = 2
+        
+        Do While .Cells(r, 1).Value <> ""
+            
+            If InStr(.Cells(r, 1).Value, "M-A") > 0 Then
+                maleRef_row = r
+            ElseIf InStr(.Cells(r, 1).Value, "F1-AB") > 0 Then
+                heteroRef_row = r
+            ElseIf InStr(.Cells(r, 1).Value, "F-B") > 0 Then
+                femaleRef_row = r
+            End If
+               
+            r = r + 1
+        Loop
+        
+        '''''''''''''' End select reference's genotypes ''''''''''''''''''
+        
+        ''''''''''''''''''''''''''''
+        ''''''''' Scoring ''''''''''
+        ''''''''''''''''''''''''''''
+        i = 2
+        sumRow = 5
+        retestCol_blank = markerNumber + 13
+        retestCol_cbi = markerNumber + 14   'cannot be interpleted
+        
+        
+        hybrid = 0
+        female = 0
+        offtype = 0
+        blank = 0
+        cbi = 0     'cannot be interpleted
+        countSp = 0
+        
+        batchName = Split(.Cells(i, 1).Value, "-")
+        dnaCode = batchName(1)
+        
+        a = .Cells(i, 1).Value
+        
+        Do While .Cells(i, 1).Value <> "" And InStr(.Cells(i, 1).Value, "M-A") = 0 And InStr(.Cells(i, 1).Value, "F1-AB") = 0 And InStr(.Cells(i, 1).Value, "F-B") = 0
+            
+            a = .Cells(i, 1).Value
+            'If .Cells(i, 1).Value <> varName & "-fill-up" Then
+                'i = i + 1
+            'End If
+            
+            If UBound(Split(.Cells(i, 1).Value, "-")) = 5 Then
+            'If InStr(.Cells(i + 1, 1).Value, "fill-up") = 0 Then
+            
+                ''' Count genotypes '''
+                countSp = countSp + 1
+              
+                hybridCount = 0
+                maleCount = 0
+                femaleCount = 0
+                cbiCount = 0
+                
+                
+                j = 2
+                Do While .Cells(1, j).Value <> ""
+                
+                    If .Cells(i, j).Value <> "-" Then   'Don't read blank data
+                        If .Cells(i, j).Value = .Cells(heteroRef_row, j).Value Then
+                            hybridCount = hybridCount + 1
+    
+                        ElseIf .Cells(i, j).Value = .Cells(maleRef_row, j).Value Then
+                            maleCount = maleCount + 1
+    
+                        ElseIf .Cells(i, j).Value = .Cells(femaleRef_row, j).Value Then
+                            femaleCount = femaleCount + 1
+                            
+                        ElseIf .Cells(heteroRef_row, j).Value = "-" Or .Cells(maleRef_row, j).Value = "-" Or .Cells(femaleRef_row, j).Value = "-" Then
+                            cbiCount = cbiCount + 1
+                            
+                        End If
+
+                    End If
+                    
+                    j = j + 1
+                Loop
+                
+                ''' Count genotypes '''
+            
+                ''' Interpreting '''
+            
+                If hybridCount + maleCount + femaleCount + cbiCount >= 3 Then
+                    If hybridCount >= 3 Then
+                        hybrid = hybrid + 1
+                        
+                    ElseIf maleCount = femaleCount Then
+                        cbi = cbi + 1
+                        .Cells(i, markerNumber + 1).Value = "CP" & Str(cbi)   'cannot be interpreted
+                        .Cells(sumRow, retestCol_cbi).Value = .Cells(sumRow, retestCol_cbi).Value + ", " + .Cells(i, 1).Value
+                        'retestCol_cbi = retestCol_cbi + 1
+                        
+                    ElseIf maleCount >= 2 Then
+                        offtype = offtype + 1
+                        .Cells(i, markerNumber + 1).Value = "OFF" & Str(offtype)
+                        
+                    ElseIf femaleCount >= 2 Then
+                        female = female + 1
+                        .Cells(i, markerNumber + 1).Value = "F" & Str(female)
+                        
+                    Else
+                        cbi = cbi + 1
+                        .Cells(i, markerNumber + 1).Value = "CP" & Str(cbi)
+                        .Cells(sumRow, retestCol_cbi).Value = .Cells(sumRow, retestCol_cbi).Value + ", " + .Cells(i, 1).Value
+                                            
+                    End If
+                Else
+                        
+                    If maleCount >= 2 Then
+                        offtype = offtype + 1
+                        .Cells(i, markerNumber + 1).Value = "OFF" & Str(offtype)
+                        
+                    ElseIf femaleCount >= 2 Then
+                        female = female + 1
+                        .Cells(i, markerNumber + 1).Value = "F" & Str(female)
+                    Else
+                        blank = blank + 1
+                        .Cells(i, markerNumber + 1).Value = "B" & Str(blank)
+                        .Cells(sumRow, retestCol_blank).Value = .Cells(sumRow, retestCol_blank).Value + ", " + .Cells(i, 1).Value
+                    End If
+                End If
+            End If
+            
+            ''' End interpreting '''
+            
+            ''' Summaty each batch
+            
+            endBatch = False
+            If InStr(.Cells(i + 1, 1).Value, dnaCode) = 0 Then
+                If .Cells(i + 1, 1).Value = varName & "-fill-up" Then
+                    If InStr(.Cells(i + 2, 1).Value, dnaCode) = 0 Then
+                        endBatch = True
+                    End If
+                
+                Else
+                    endBatch = True
+                End If
+            End If
+            
+
+            If endBatch = True And InStr(.Cells(i, 1).Value, "fill-up") = 0 Then 'if DNA_code in the next row differ >> write details and scoring
+            
+                ''' Scoring '''
+                
+                .Cells(sumRow, markerNumber + 3).Value = .Cells(i, 1).Value     'Batch name
+                .Cells(sumRow, markerNumber + 4).Value = hybrid + female + offtype  ' Total number
+                'If .Cells(sumRow, markerNumber + 4).Value > 92 Then
+                '    a = 1
+                'End If
+                .Cells(sumRow, markerNumber + 5).Value = hybrid
+                .Cells(sumRow, markerNumber + 6).Value = female + offtype
+                .Cells(sumRow, markerNumber + 7).Value = female
+                .Cells(sumRow, markerNumber + 8).Value = offtype
+                
+                hybridResult = 0
+                If (hybrid + female + offtype) > 0 Then
+                    hybridResult = Round((hybrid * 100) / (hybrid + female + offtype), 2)
+                End If
+                .Cells(sumRow, markerNumber + 9).Value = hybridResult
+                .Cells(i, markerNumber + 2).Value = hybridResult
+                
+                If blank + cbi > 0 Then
+                    .Cells(sumRow, markerNumber + 10).Value = blank
+                    .Cells(sumRow, markerNumber + 11).Value = cbi
+                End If
+                
+                If blank + cbi > 3 Then
+                    .Cells(sumRow, markerNumber + 12).Value = "BLANK samples will be re-tested and results will be reported by"
+                End If
+                
+               
+                sumRow = sumRow + 1
+                retestCol = markerNumber + 12
+                
+                ''' end scoring '''
+                
+                '''''''''''''''''''''''''''''''''''''''''''''''''''''
+                ''' Find and Make report form in request's folder '''
+                '''''''''''''''''''''''''''''''''''''''''''''''''''''
+                
+                pathSet = Workbooks("Operator_V.3.xlsm").Sheets("path").Range("A2").Value
+                Set objFs = CreateObject("Scripting.FileSystemObject")
+                Set objFolder = objFs.GetFolder(pathSet)       ' THE PATH FOR THE FILES
+                
+                For Each file In objFolder.Files
+                    
+                    aaa = file.Name
+
+                    
+                    If InStr(file.Name, "~") = 0 Then
+                
+                        Windows(file.Name).Activate
+                        
+                        ''' Add results into report
+                        
+                        With Sheets("Results")
+                        
+                            'bbb = IsError(ActiveWorkbook.Worksheets("Results").Columns(8).Find(Str(dnaCode)))
+                            'bbb = IsError(Application.Match(dnaCode, .Range("H:H"), 0))
+                            bbb = WorksheetFunction.CountIf(.Range("H:H"), dnaCode)
+                    
+                            
+                            If WorksheetFunction.CountIf(.Range("H:H"), dnaCode) = 1 Then   '' Search the row to fill the results by DNA_code
+                        
+                                rowReport = .Range("H:H").Find(what:=dnaCode).Row
+                                
+                                stRowReport = rowReport
+                                
+                                endRowReport = rowReport
+                                
+                                a = .Cells(endRowReport + 1, 8).Value <> ""
+                                b = .Cells(endRowReport + 1, 8).Value <> dnaCode
+                                c = .Cells(endRowReport + 1, 4).Value <> ""
+                                d = .Cells(endRowReport + 1, 6).Value <> ""
+                                e = .Cells(endRowReport + 1, 7).Value <> ""
+                                
+                                Do While .Cells(endRowReport + 1, 8).Value = "" And (.Cells(endRowReport + 1, 4).Value <> "" Or .Cells(endRowReport + 1, 6).Value <> "" Or .Cells(endRowReport + 1, 7).Value <> "")
+                                    
+                                    endRowReport = endRowReport + 1
+                                
+                                Loop
+                                
+                                ''' Check retest: if "True", sum value with the old results
+                                
+                                If .Cells(rowReport, 16).Value <> "" Then
+                                
+                                    .Cells(rowReport, 12).Value = repDate 'Report
+                                    .Cells(rowReport, 17).Value = genoDate 'Genotyping
+                                    .Cells(rowReport, 18).Value = anaDate 'Analysis
+                                    .Cells(rowReport, 19).Value = repDate 'Report
+                                    
+                                    .Cells(rowReport, 23).Value = .Cells(rowReport, 23).Value + female                      'female
+                                    .Cells(rowReport, 24).Value = .Cells(rowReport, 24).Value + offtype                     'offtype                                       .Cells(rowReport, 20).Value = 92 - .Cells(rowReport, 26).Value + hybrid + female + offtype 'total (for retesting: )
+                                    .Cells(rowReport, 22).Value = .Cells(rowReport, 24).Value + .Cells(rowReport, 23).Value 'non hybrid                                        .Cells(rowReport, 21).Value = .Cells(rowReport, 21).Value + hybrid                      'hybrid
+                                    .Cells(rowReport, 20).Value = 92 - blank - cbi                                             'total = 92-blank
+                                    .Cells(rowReport, 21).Value = .Cells(rowReport, 20).Value - .Cells(rowReport, 22).Value 'hybrid = total - non hybrid
+                                    .Cells(rowReport, 26).Value = blank                                                        'blank
+                                    .Cells(rowReport, 27).Value = cbi                                                        'cannot be interpreted
+                                    .Cells(rowReport, 25).Value = Format((.Cells(rowReport, 21).Value / (.Cells(rowReport, 21).Value + .Cells(rowReport, 23).Value + .Cells(rowReport, 24).Value)), "Percent")  '%hybrid
+                                    If blank + cbi = 0 Then
+                                        .Cells(rowReport, 28).Value = "BLANK samples were already re-tested and no BLANK result observed."
+                                    Else
+                                        .Cells(rowReport, 28).Value = "BLANK samples were already re-tested but BLANK result(s) still observed."
+                                    End If
+                                    
+                                ''' report for new testing
+                                                                       
+                                Else
+
+                                    .Cells(rowReport, 10).Value = recDate 'Received date
+                                    .Cells(rowReport, 11).Value = stDate 'Started date
+                                    .Cells(rowReport, 12).Value = repDate 'Report date
+                                    .Cells(rowReport, 13).Value = extDate 'DNA extraction
+                                    .Cells(rowReport, 14).Value = genoDate 'Genotyping
+                                    .Cells(rowReport, 15).Value = anaDate 'Analysis
+                                    .Cells(rowReport, 16).Value = repDate 'Report
+
+                                
+                                    If blank + cbi <= 3 Then   'Not report all details
+                                    
+                                        .Cells(rowReport, 20).Value = hybrid + female + offtype
+                                        .Cells(rowReport, 21).Value = hybrid
+                                        .Cells(rowReport, 22).Value = female + offtype
+                                        .Cells(rowReport, 23).Value = female
+                                        .Cells(rowReport, 24).Value = offtype
+                                        .Cells(rowReport, 25).Value = Format(((hybrid) / (hybrid + female + offtype)), "Percent")
+                                        
+                                        If blank = 0 Then
+                                            .Cells(rowReport, 26).Value = ""                                               'blank
+                                        Else
+                                            .Cells(rowReport, 26).Value = blank                                               'blank
+                                        End If
+                                        
+                                        If cbi = 0 Then
+                                            .Cells(rowReport, 27).Value = ""
+                                        Else
+                                            .Cells(rowReport, 27).Value = cbi
+                                        End If
+                                                                        
+                                    Else   'Report all details
+                                    
+                                        .Cells(rowReport, 23).Value = female
+                                        .Cells(rowReport, 24).Value = offtype
+                                        
+                                        If blank = 0 Then
+                                            .Cells(rowReport, 26).Value = ""                                               'blank
+                                        Else
+                                            .Cells(rowReport, 26).Value = blank                                               'blank
+                                        End If
+                                        
+                                        If cbi = 0 Then
+                                            .Cells(rowReport, 27).Value = ""
+                                        Else
+                                            .Cells(rowReport, 27).Value = cbi
+                                        End If                                            'cannot be interpreted
+                                        
+                                        .Cells(rowReport, 28).Value = "BLANK samples will be re-tested and results will be reported by"
+                                
+                                    End If
+                                
+                                End If
+                                '' Formating
+                                
+                                For c = 10 To 28
+                                
+                                    Range(.Cells(stRowReport, c), .Cells(endRowReport, c)).Select
+                                    
+                                    With Selection
+                                        .HorizontalAlignment = xlCenter
+                                        .VerticalAlignment = xlCenter
+                                        .WrapText = False
+                                        .Orientation = 0
+                                        .AddIndent = False
+                                        .IndentLevel = 0
+                                        .ShrinkToFit = False
+                                        .ReadingOrder = xlContext
+                                        .MergeCells = False
+                                    End With
+                                    Selection.merge
+                                    Selection.Borders(xlDiagonalDown).LineStyle = xlNone
+                                    Selection.Borders(xlDiagonalUp).LineStyle = xlNone
+                                    With Selection.Borders(xlEdgeLeft)
+                                        .LineStyle = xlContinuous
+                                        .ColorIndex = 0
+                                        .TintAndShade = 0
+                                        .Weight = xlThin
+                                    End With
+                                    With Selection.Borders(xlEdgeTop)
+                                        .LineStyle = xlContinuous
+                                        .ColorIndex = 0
+                                        .TintAndShade = 0
+                                        .Weight = xlThin
+                                    End With
+                                    With Selection.Borders(xlEdgeBottom)
+                                        .LineStyle = xlContinuous
+                                        .ColorIndex = 0
+                                        .TintAndShade = 0
+                                        .Weight = xlThin
+                                    End With
+                                    With Selection.Borders(xlEdgeRight)
+                                        .LineStyle = xlContinuous
+                                        .ColorIndex = 0
+                                        .TintAndShade = 0
+                                        .Weight = xlThin
+                                    End With
+                                    With Selection.Borders(xlInsideVertical)
+                                        .LineStyle = xlContinuous
+                                        .ColorIndex = 0
+                                        .TintAndShade = 0
+                                        .Weight = xlThin
+                                    End With
+                                    With Selection.Borders(xlInsideHorizontal)
+                                        .LineStyle = xlContinuous
+                                        .ColorIndex = 0
+                                        .TintAndShade = 0
+                                        .Weight = xlThin
+                                    End With
+                                Next c
+                                
+                                ''' /Formating
+                            
+                            End If
+                            
+    
+                        End With
+                        
+                        '''' /Add result into report
+                    
+                    End If
+                
+                Next
+                                
+                hybrid = 0
+                female = 0
+                offtype = 0
+                blank = 0
+                countSp = 0
+                cbi = 0
+                
+                '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+                
+                ccc = .Cells(i + 1, 1).Value
+                batchName = Split(.Cells(i + 1, 1).Value, "-")
+                dnaCode = batchName(1)
+                
+            End If
+        
+            i = i + 1
+        Loop
+    End With
+
+
+End Sub
+'Scoring
+Sub Button8_Click()
+    Call createReport
+    pathSet = Workbooks("Operator_V.3.xlsm").Sheets("path").Range("A1").Value
+    Set objFs = CreateObject("Scripting.FileSystemObject")
+    Set objFolder = objFs.GetFolder(pathSet)       ' THE PATH FOR THE FILES
+    
+    For Each file In objFolder.Files
+    
+        If InStr(file.Path, "~") = 0 Then
+    
+            Set src = Workbooks.Open(file.Path, True, False)
+        
+            Call defindBatchAndMarker(src)
+        
+        End If
+        'For i = 1 To Application.scr.Sheets.Count()
+         '   If InStr(Application.scr.Sheets(i).Names, "Sheet") = 0 Then
+          '      Call calAndSum(scr.Sheets(i), src)
+          '  End If
+        'Next i
+    
+    Next
+End Sub
+
